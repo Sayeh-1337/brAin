@@ -11,5 +11,10 @@ opencv-python>=4.5.0
 # VizDoom environment
 vizdoom>=1.1.11
 
+# YOLO dependencies
+torch>=1.9.0
+torchvision>=0.10.0
+ultralytics>=8.0.0
+
 # Optional dependencies for visualizations
 pygame>=2.1.0  # For additional visualization if needed 

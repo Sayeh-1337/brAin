@@ -11,6 +11,7 @@ The agent architecture is designed to mimic the functional organization of the b
 - **Cortical Sheet Analog** (CellularAutomata): Implements pattern formation and emergent dynamics through cellular automata.
 - **Hippocampus Analog** (EpisodicMemory): Stores experiences and enables episodic learning.
 - **Neocortex Analog** (SemanticMemory): Stores knowledge and associations for semantic understanding.
+- **Visual Object Recognition Analog** (YOLODetector): Implements object detection using YOLO, mimicking the ventral stream's object recognition capabilities.
 
 ## Project Structure
 
@@ -28,6 +29,8 @@ brAin/
 │   ├── networks/            # Neural processing
 │   │   ├── cellular_automata.py  # Cellular automata for pattern processing
 │   │   └── snn.py           # Spiking Neural Network implementation
+│   ├── perception/          # Advanced perception components
+│   │   └── yolo_detector.py # YOLO-based object detection
 │   └── utils/               # Utility functions
 ├── config/                  # Configuration files
 │   └── scenarios.py         # Scenario definitions for VizDoom
@@ -53,6 +56,11 @@ cd brAin
 pip install numpy matplotlib vizdoom scikit-image scipy pandas seaborn tqdm
 ```
 
+3. For YOLO object detection support:
+```bash
+pip install torch torchvision ultralytics
+```
+
 ## Usage
 
 ### Training an Agent
@@ -63,12 +71,19 @@ To train an agent on the basic scenario:
 python main.py train --scenario basic --episodes 1000 --output-dir results/basic
 ```
 
+With YOLO object detection:
+```bash
+python main.py train --scenario basic --episodes 1000 --use-yolo --output-dir results/basic_yolo
+```
+
 Optional parameters:
 - `--render`: Show the game window during training
 - `--hd-dim 800`: Set the dimensionality of hyperdimensional vectors
 - `--snn-neurons 500`: Set the number of neurons in the SNN
 - `--learning-rate 0.01`: Set the learning rate
 - `--model results/my_model`: Path to save the trained model
+- `--use-yolo`: Enable YOLO object detection for enhanced perception
+- `--show-yolo-detections`: Visualize YOLO detections during training/testing
 
 ### Testing an Agent
 
@@ -76,6 +91,11 @@ To test a trained agent:
 
 ```bash
 python main.py test --scenario basic --model results/basic/agent_final --render
+```
+
+With YOLO visualization:
+```bash
+python main.py test --scenario basic --model results/basic/agent_final --render --use-yolo --show-yolo-detections
 ```
 
 ### Evaluating Generalization
@@ -92,6 +112,11 @@ To visualize the agent's internal representations:
 
 ```bash
 python main.py visualize --scenario basic --model results/my_model --render --visualize-internals
+```
+
+With YOLO detection visualization:
+```bash
+python main.py visualize --scenario basic --model results/my_model --render --visualize-internals --use-yolo --show-yolo-detections
 ```
 
 ## Scenarios
@@ -126,6 +151,28 @@ Stores experiences in a way analogous to hippocampal function, with pattern comp
 
 Stores semantic knowledge and associations, similar to how the neocortex consolidates information from episodic memory.
 
+### YOLODetector
+
+YOLO-based object detector that mimics the ventral stream's object recognition capabilities in the visual cortex. Enhances perception by detecting objects like enemies, health packs, weapons, and more.
+
+## YOLO Object Detection
+
+The agent integrates YOLO (You Only Look Once) object detection to enhance its perception capabilities:
+
+- Detects objects in the game environment (enemies, health packs, weapons, etc.)
+- Creates attention maps focused on important objects
+- Generates object-centric representations for improved decision making
+- Visualizes detections during training/testing
+
+### Fine-tuning YOLO for Doom
+
+For optimal performance, you can fine-tune YOLO with Doom-specific data:
+
+1. **Collect Images**: Capture frames from different scenarios
+2. **Label Data**: Use tools like CVAT or LabelImg to label objects
+3. **Organize Data** in YOLO format according to ultralytics requirements
+4. **Fine-tune** using the provided `fine_tune` method in YOLODetector
+
 ## Evaluation Metrics
 
 The agent's performance is evaluated using various metrics:
@@ -142,6 +189,7 @@ The agent's performance is evaluated using various metrics:
 - Improve the integration between episodic and semantic memory
 - Implement attention mechanisms for more effective visual processing
 - Support for additional environments beyond VizDoom
+- Create a Doom-specific dataset for YOLO fine-tuning
 
 ## License
 
@@ -154,4 +202,5 @@ This project takes inspiration from various fields including:
 - Spiking Neural Networks
 - Neuroscience and cognitive architecture
 - Cellular Automata
-- The VizDoom environment 
+- The VizDoom environment
+- YOLO object detection 

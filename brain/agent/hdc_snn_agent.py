@@ -38,7 +38,8 @@ class HDCSNNAgent:
                  ca_width=30,
                  ca_height=20,
                  memory_capacity=10000,
-                 learning_rate=0.01):
+                 learning_rate=0.01,
+                 use_yolo=False):
         """
         Initialize the agent components
         
@@ -51,14 +52,16 @@ class HDCSNNAgent:
             ca_height: Height of cellular automata grid
             memory_capacity: Capacity of episodic memory
             learning_rate: Learning rate for the SNN
+            use_yolo: Whether to use YOLO object detection
         """
         self.input_shape = input_shape
         self.hd_dim = hd_dim
         self.num_actions = num_actions
         self.learning_rate = learning_rate
+        self.use_yolo = use_yolo
         
         # Initialize components
-        self.hdc_encoder = HDCEncoder(D=hd_dim)
+        self.hdc_encoder = HDCEncoder(D=hd_dim, use_yolo=use_yolo)
         self.snn = SpikingNeuralNetwork(
             input_size=hd_dim,
             num_neurons=snn_neurons,
@@ -81,6 +84,11 @@ class HDCSNNAgent:
         # Visualization settings
         self.visualize_internals = False
         
+        # YOLO visualizations
+        self.show_yolo_detections = False
+        self.last_frame = None
+        self.last_detections = None
+        
         # Exploration parameters
         self.epsilon = 1.0
         self.epsilon_min = 0.05
@@ -100,6 +108,12 @@ class HDCSNNAgent:
         """
         # Preprocess and encode observation
         processed_obs = self._preprocess(observation)
+        
+        # Save current frame for visualization if needed
+        if self.visualize_internals and self.show_yolo_detections:
+            self.last_frame = processed_obs
+        
+        # Encode observation with HDC (and potentially YOLO)
         hd_vector = self.hdc_encoder.encode_observation(processed_obs, motion)
         
         if hd_vector is None:
@@ -288,34 +302,97 @@ class HDCSNNAgent:
         if not self.visualize_internals:
             return
             
-        fig = plt.figure(figsize=(15, 10))
-        
-        # Plot current observation
-        if observation is not None:
-            ax1 = fig.add_subplot(2, 2, 1)
-            ax1.imshow(observation)
-            ax1.set_title("Current Observation")
-            ax1.axis('off')
+        # Create figure for visualization
+        if self.show_yolo_detections and self.use_yolo and hasattr(self.hdc_encoder, 'yolo_detector'):
+            # 3x2 layout with YOLO detection visualization
+            fig = plt.figure(figsize=(18, 12))
             
-        # Plot cellular automata state
-        ax2 = fig.add_subplot(2, 2, 2)
-        self.ca.visualize(ax=ax2)
-        
-        # Plot SNN activations
-        ax3 = fig.add_subplot(2, 2, 3)
-        ax3.bar(range(len(self.snn.last_activations)), self.snn.last_activations)
-        ax3.set_title("SNN Neuron Activations")
-        ax3.set_xlabel("Neuron")
-        ax3.set_ylabel("Activation")
-        
-        # Plot action probabilities
-        ax4 = fig.add_subplot(2, 2, 4)
-        ax4.bar(range(len(self.snn.last_output)), self.snn.last_output)
-        ax4.set_title("Action Probabilities")
-        ax4.set_xlabel("Action")
-        ax4.set_ylabel("Probability")
-        ax4.set_xticks(range(self.num_actions))
-        ax4.set_xticklabels(["FWD", "RIGHT", "LEFT", "ATTACK", "NONE"])
+            # Plot current observation
+            if observation is not None:
+                ax1 = fig.add_subplot(2, 3, 1)
+                ax1.imshow(observation)
+                ax1.set_title("Current Observation")
+                ax1.axis('off')
+                
+            # Plot YOLO detections if available
+            ax2 = fig.add_subplot(2, 3, 2)
+            if self.last_frame is not None and hasattr(self.hdc_encoder.yolo_detector, 'visualize_detections'):
+                # Get detections
+                try:
+                    detections = self.hdc_encoder.yolo_detector.detect(self.last_frame)
+                    # Create visualization
+                    vis_frame = self.hdc_encoder.yolo_detector.visualize_detections(self.last_frame, detections)
+                    ax2.imshow(vis_frame)
+                    ax2.set_title(f"YOLO Detections: {len(detections)} objects")
+                except Exception as e:
+                    ax2.text(0.5, 0.5, f"YOLO error: {str(e)}", ha='center', va='center')
+            else:
+                ax2.text(0.5, 0.5, "YOLO not available", ha='center', va='center')
+            ax2.axis('off')
+            
+            # Plot cellular automata state
+            ax3 = fig.add_subplot(2, 3, 3)
+            self.ca.visualize(ax=ax3)
+            
+            # Plot attention map if available
+            ax4 = fig.add_subplot(2, 3, 4)
+            if self.last_frame is not None and hasattr(self.hdc_encoder.yolo_detector, 'create_attention_map'):
+                try:
+                    detections = self.hdc_encoder.yolo_detector.detect(self.last_frame)
+                    attention = self.hdc_encoder.yolo_detector.create_attention_map(self.last_frame, detections)
+                    ax4.imshow(attention, cmap='hot')
+                    ax4.set_title("Attention Map")
+                except Exception as e:
+                    ax4.text(0.5, 0.5, f"Attention error: {str(e)}", ha='center', va='center')
+            else:
+                ax4.text(0.5, 0.5, "Attention map not available", ha='center', va='center')
+            ax4.axis('off')
+            
+            # Plot SNN activations
+            ax5 = fig.add_subplot(2, 3, 5)
+            ax5.bar(range(len(self.snn.last_activations)), self.snn.last_activations)
+            ax5.set_title("SNN Neuron Activations")
+            ax5.set_xlabel("Neuron")
+            ax5.set_ylabel("Activation")
+            
+            # Plot action probabilities
+            ax6 = fig.add_subplot(2, 3, 6)
+            ax6.bar(range(len(self.snn.last_output)), self.snn.last_output)
+            ax6.set_title("Action Probabilities")
+            ax6.set_xlabel("Action")
+            ax6.set_ylabel("Probability")
+            ax6.set_xticks(range(self.num_actions))
+            ax6.set_xticklabels(["FWD", "RIGHT", "LEFT", "ATTACK", "NONE"])
+        else:
+            # Standard 2x2 layout
+            fig = plt.figure(figsize=(15, 10))
+            
+            # Plot current observation
+            if observation is not None:
+                ax1 = fig.add_subplot(2, 2, 1)
+                ax1.imshow(observation)
+                ax1.set_title("Current Observation")
+                ax1.axis('off')
+                
+            # Plot cellular automata state
+            ax2 = fig.add_subplot(2, 2, 2)
+            self.ca.visualize(ax=ax2)
+            
+            # Plot SNN activations
+            ax3 = fig.add_subplot(2, 2, 3)
+            ax3.bar(range(len(self.snn.last_activations)), self.snn.last_activations)
+            ax3.set_title("SNN Neuron Activations")
+            ax3.set_xlabel("Neuron")
+            ax3.set_ylabel("Activation")
+            
+            # Plot action probabilities
+            ax4 = fig.add_subplot(2, 2, 4)
+            ax4.bar(range(len(self.snn.last_output)), self.snn.last_output)
+            ax4.set_title("Action Probabilities")
+            ax4.set_xlabel("Action")
+            ax4.set_ylabel("Probability")
+            ax4.set_xticks(range(self.num_actions))
+            ax4.set_xticklabels(["FWD", "RIGHT", "LEFT", "ATTACK", "NONE"])
         
         plt.tight_layout()
         plt.pause(0.01)

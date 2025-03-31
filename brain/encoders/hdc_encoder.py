@@ -12,6 +12,13 @@ Functions similar to the visual processing stream from V1-V5:
 import numpy as np
 import cv2
 
+# Import YOLO detector (with error handling for missing dependencies)
+try:
+    from brain.perception.yolo_detector import YOLODetector
+    YOLO_AVAILABLE = True
+except ImportError:
+    YOLO_AVAILABLE = False
+
 class HDCEncoder:
     """
     VISUAL CORTEX ANALOG
@@ -28,10 +35,22 @@ class HDCEncoder:
     large groups of neurons rather than individual cells.
     """
 
-    def __init__(self, D=1000):  # D is the dimensionality of HD vectors
+    def __init__(self, D=1000, use_yolo=False):  # D is the dimensionality of HD vectors
         self.D = D
         self.item_memory = {}
         self._initialize_base_vectors()
+        
+        # Initialize YOLO detector if requested and available
+        self.use_yolo = use_yolo and YOLO_AVAILABLE
+        self.yolo_detector = None
+        
+        if self.use_yolo:
+            if not YOLO_AVAILABLE:
+                print("Warning: YOLO detection requested but dependencies not available")
+                print("Install with: pip install torch torchvision ultralytics")
+            else:
+                self.yolo_detector = YOLODetector(model_size='n')
+                print(f"YOLO detector initialized using {self.yolo_detector.device}")
 
     def _initialize_base_vectors(self):
         """Initialize random bipolar vectors for basic features"""
@@ -41,6 +60,12 @@ class HDCEncoder:
         features = ['edge', 'motion', 'shape', 'position', 'action']
         for feature in features:
             self.base_vectors[feature] = np.random.choice([-1, 1], size=self.D)
+            
+        # Add YOLO-related features if needed
+        if self.use_yolo:
+            yolo_features = ['person', 'enemy', 'weapon', 'health', 'ammo', 'door']
+            for feature in yolo_features:
+                self.base_vectors[feature] = np.random.choice([-1, 1], size=self.D)
 
     def create_position_vector(self, x, y, resolution=(120, 160)):
         """Create position vector for a given x, y coordinate"""
@@ -89,56 +114,93 @@ class HDCEncoder:
         """
         if frame is None:
             return None
-            
-        # Ensure frame is grayscale
-        if len(frame.shape) == 3 and frame.shape[2] == 3:
-            gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        
+        # Convert to grayscale for edge detection
+        if len(frame.shape) == 3:
+            gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
         else:
-            gray_frame = frame
+            gray = frame
             
-        # Detect edges
-        edges = cv2.Canny(gray_frame, 100, 200)
+        # Edge detection (V1-like processing)
+        edges = cv2.Canny(gray, 50, 150)
+        edge_positions = np.where(edges > 0)
         
-        # Container for all feature vectors to bundle
+        # Create vectors for edge positions
         edge_vectors = []
-        motion_vectors = []
-        
-        # Process edges with sampling (process only a subset of points)
-        edge_points = np.where(edges > 0)
-        # Sample only up to 100 edge points to reduce computation
-        num_edge_points = min(len(edge_points[0]), 100)
-        if num_edge_points > 0:
-            indices = np.random.choice(len(edge_points[0]), num_edge_points, replace=False)
-            for i in indices:
-                y, x = edge_points[0][i], edge_points[1][i]
-                pos_vec = self.create_position_vector(x, y)
-                edge_vectors.append(self._bind(self.base_vectors['edge'], pos_vec))
-
-        # Process motion if available (with more aggressive sampling)
-        if motion is not None:
-            # Use larger step size (16 instead of 8) to process fewer blocks
-            for y in range(0, motion.shape[0], 16):
-                for x in range(0, motion.shape[1], 16):
-                    # Get average motion in block
-                    block = motion[y:y+16, x:x+16]
-                    if block.size > 0:
-                        motion_val = np.mean(block)
-                        if motion_val > 10:  # Only consider significant motion
-                            pos_vec = self.create_position_vector(x+8, y+8)  # Center of block
-                            motion_vectors.append(self._bind(
-                                self.base_vectors['motion'], 
-                                self._bind(pos_vec, self._continuous_to_hd(motion_val/255))
-                            ))
-        
-        # Combine all feature vectors
-        all_vectors = edge_vectors + motion_vectors
-        
-        # If no features detected, return a random vector
-        if not all_vectors:
-            return np.random.choice([-1, 1], size=self.D)
+        for y, x in zip(edge_positions[0], edge_positions[1]):
+            pos_vector = self.create_position_vector(x, y, (gray.shape[0], gray.shape[1]))
+            edge_vector = self._bind(pos_vector, self.base_vectors['edge'])
+            edge_vectors.append(edge_vector)
             
-        # Bundle all vectors
-        return self._bundle(all_vectors)
+        # Combine edge vectors
+        if edge_vectors:
+            edges_hd = self._bundle(edge_vectors)
+        else:
+            edges_hd = np.zeros(self.D)
+            
+        # Process motion information if available
+        if motion is not None:
+            motion_vectors = []
+            # Find areas with significant motion
+            motion_points = np.where(motion > 30)
+            for y, x in zip(motion_points[0], motion_points[1]):
+                pos_vector = self.create_position_vector(x, y, (motion.shape[0], motion.shape[1]))
+                motion_vector = self._bind(pos_vector, self.base_vectors['motion'])
+                motion_vectors.append(motion_vector)
+                
+            if motion_vectors:
+                motion_hd = self._bundle(motion_vectors)
+                # Combine with edge information
+                hd_vector = self._bind(edges_hd, motion_hd)
+            else:
+                hd_vector = edges_hd
+        else:
+            hd_vector = edges_hd
+            
+        # Add YOLO-based object detection if enabled
+        if self.use_yolo and self.yolo_detector is not None:
+            try:
+                # Detect objects in the frame
+                detections = self.yolo_detector.detect(frame)
+                
+                # Create object vectors for each detection
+                object_vectors = []
+                for det in detections:
+                    # Position encoding for object center
+                    cx, cy = det['center']
+                    pos_vector = self.create_position_vector(
+                        cx, cy, (frame.shape[0], frame.shape[1])
+                    )
+                    
+                    # Class encoding
+                    class_name = det['class_name']
+                    if class_name not in self.item_memory:
+                        self.item_memory[class_name] = np.random.choice([-1, 1], size=self.D)
+                    class_vector = self.item_memory[class_name]
+                    
+                    # Size encoding
+                    size = max(det['size']) / max(frame.shape[:2])  # normalize size
+                    size_vector = self._continuous_to_hd(size)
+                    
+                    # Combine properties with binding
+                    object_vector = self._bind(pos_vector, class_vector)
+                    object_vector = self._bind(object_vector, size_vector)
+                    
+                    # Scale by confidence
+                    object_vector = object_vector * det['confidence']
+                    
+                    object_vectors.append(object_vector)
+                    
+                # Bundle all object vectors
+                if object_vectors:
+                    object_hd = self._bundle(object_vectors)
+                    
+                    # Combine with basic encoding
+                    hd_vector = self._bind(hd_vector, object_hd)
+            except Exception as e:
+                print(f"Error in YOLO processing: {e}")
+                
+        return hd_vector
 
     def encode_action(self, action):
         """Encode an action as an HD vector"""

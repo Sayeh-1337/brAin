@@ -93,6 +93,19 @@ def parse_args():
         help="Learning rate for SNN"
     )
     
+    # YOLO detection options
+    parser.add_argument(
+        "--use-yolo", 
+        action="store_true",
+        help="Use YOLO object detection for enhanced perception"
+    )
+    
+    parser.add_argument(
+        "--show-yolo-detections", 
+        action="store_true",
+        help="Show YOLO detection visualizations (requires --use-yolo)"
+    )
+    
     # Model path for loading/saving
     parser.add_argument(
         "--model", 
@@ -147,11 +160,19 @@ def create_agent(args, scenario_config):
         ca_width=ca_width,
         ca_height=ca_height,
         memory_capacity=10000,
-        learning_rate=learning_rate
+        learning_rate=learning_rate,
+        use_yolo=args.use_yolo
     )
     
     # Enable visualization if requested
     agent.visualize_internals = args.visualize_internals
+    
+    # Enable YOLO visualization if requested
+    if args.show_yolo_detections:
+        if not args.use_yolo:
+            print("Warning: --show-yolo-detections requires --use-yolo, ignoring")
+        else:
+            agent.show_yolo_detections = True
     
     # Load model if specified
     if args.model and os.path.exists(args.model):
@@ -181,6 +202,9 @@ def train(args):
     scenario_config = SCENARIO_CONFIGS[args.scenario]
     print(f"Training on scenario: {args.scenario} - {scenario_config['description']}")
     print(f"Required skills: {', '.join(scenario_config['skills'])}")
+    
+    if args.use_yolo:
+        print("Using YOLO object detection for enhanced perception")
     
     # Create environment and agent
     env = create_environment(args)
@@ -229,6 +253,9 @@ def test(args):
     # Get scenario config
     scenario_config = SCENARIO_CONFIGS[args.scenario]
     print(f"Testing on scenario: {args.scenario} - {scenario_config['description']}")
+    
+    if args.use_yolo:
+        print("Using YOLO object detection for enhanced perception")
     
     # Create environment and agent
     env = create_environment(args)
@@ -332,6 +359,9 @@ def evaluate(args):
         
     print("Running comprehensive evaluation across multiple scenarios")
     
+    if args.use_yolo:
+        print("Using YOLO object detection for enhanced perception")
+    
     # List of scenarios to evaluate on
     scenarios = list(SCENARIO_CONFIGS.keys())
     
@@ -406,6 +436,9 @@ def visualize(args):
     if not args.model:
         print("Error: Must specify a model path with --model")
         return
+    
+    if args.use_yolo:
+        print("Using YOLO object detection for enhanced perception")
         
     # Create environment and agent
     env = create_environment(args)
