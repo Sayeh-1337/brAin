@@ -282,42 +282,55 @@ class HDCSNNAgent:
         Args:
             filename: Base filename to save agent components
         """
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(filename), exist_ok=True)
-        
-        # Save agent state
-        state = {
-            'input_shape': self.input_shape,
-            'hd_dim': self.hd_dim,
-            'num_actions': self.num_actions,
-            'learning_rate': self.learning_rate,
-            'use_yolo': self.use_yolo,
-            'epsilon': self.epsilon,
-            'epsilon_min': self.epsilon_min,
-            'epsilon_decay': self.epsilon_decay,
-            'episode_rewards': self.episode_rewards,
-            'step_count': self.step_count,
-            'episode_count': self.episode_count
-        }
-        
-        # Save components
-        components = {
-            'hdc_encoder': self.hdc_encoder,
-            'snn': self.snn,
-            'ca': self.ca,
-            'episodic_memory': self.episodic_memory,
-            'semantic_memory': self.semantic_memory
-        }
-        
-        # Save state and components
-        with open(f"{filename}_state.pkl", 'wb') as f:
-            pickle.dump(state, f)
+        try:
+            # Create directory if it doesn't exist
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
             
-        with open(f"{filename}_components.pkl", 'wb') as f:
-            pickle.dump(components, f)
+            # Save agent state
+            state = {
+                'input_shape': self.input_shape,
+                'hd_dim': self.hd_dim,
+                'num_actions': self.num_actions,
+                'learning_rate': self.learning_rate,
+                'use_yolo': self.use_yolo,
+                'epsilon': self.epsilon,
+                'epsilon_min': self.epsilon_min,
+                'epsilon_decay': self.epsilon_decay,
+                'episode_rewards': self.episode_rewards,
+                'step_count': self.step_count,
+                'episode_count': self.episode_count
+            }
             
-        print(f"Saved agent state to {filename}_state.pkl")
-        print(f"Saved agent components to {filename}_components.pkl")
+            # Components that can be safely pickled
+            components = {
+                'snn': self.snn,
+                'ca': self.ca,
+                'episodic_memory': self.episodic_memory,
+                'semantic_memory': self.semantic_memory
+            }
+            
+            # HDC Encoder needs special handling for YOLO
+            hdc_encoder_state = {
+                'D': self.hdc_encoder.D,
+                'use_yolo': self.hdc_encoder.use_yolo,
+                'item_memory': self.hdc_encoder.item_memory,
+                'base_vectors': self.hdc_encoder.base_vectors
+            }
+            components['hdc_encoder_state'] = hdc_encoder_state
+            
+            # Save state and components
+            with open(f"{filename}_state.pkl", 'wb') as f:
+                pickle.dump(state, f)
+                
+            with open(f"{filename}_components.pkl", 'wb') as f:
+                pickle.dump(components, f)
+                
+            print(f"Saved agent state to {filename}_state.pkl")
+            print(f"Saved agent components to {filename}_components.pkl")
+            return True
+        except Exception as e:
+            print(f"Error saving model: {e}")
+            return False
         
     def load(self, filename):
         """
@@ -326,36 +339,56 @@ class HDCSNNAgent:
         Args:
             filename: Base filename to load agent components
         """
-        # Load state
-        with open(f"{filename}_state.pkl", 'rb') as f:
-            state = pickle.load(f)
+        try:
+            # Check if files exist
+            if not os.path.exists(f"{filename}_state.pkl") or not os.path.exists(f"{filename}_components.pkl"):
+                print(f"Error: Model files not found at {filename}")
+                return False
             
-        # Load components
-        with open(f"{filename}_components.pkl", 'rb') as f:
-            components = pickle.load(f)
+            # Load state
+            with open(f"{filename}_state.pkl", 'rb') as f:
+                state = pickle.load(f)
             
-        # Restore state
-        self.input_shape = state['input_shape']
-        self.hd_dim = state['hd_dim']
-        self.num_actions = state['num_actions']
-        self.learning_rate = state['learning_rate']
-        self.use_yolo = state['use_yolo']
-        self.epsilon = state['epsilon']
-        self.epsilon_min = state['epsilon_min']
-        self.epsilon_decay = state['epsilon_decay']
-        self.episode_rewards = state['episode_rewards']
-        self.step_count = state['step_count']
-        self.episode_count = state['episode_count']
-        
-        # Restore components
-        self.hdc_encoder = components['hdc_encoder']
-        self.snn = components['snn']
-        self.ca = components['ca']
-        self.episodic_memory = components['episodic_memory']
-        self.semantic_memory = components['semantic_memory']
-        
-        print(f"Loaded agent state from {filename}_state.pkl")
-        print(f"Loaded agent components from {filename}_components.pkl")
+            # Load components
+            with open(f"{filename}_components.pkl", 'rb') as f:
+                components = pickle.load(f)
+            
+            # Restore state
+            self.input_shape = state['input_shape']
+            self.hd_dim = state['hd_dim']
+            self.num_actions = state['num_actions']
+            self.learning_rate = state['learning_rate']
+            self.use_yolo = state['use_yolo']
+            self.epsilon = state['epsilon']
+            self.epsilon_min = state['epsilon_min']
+            self.epsilon_decay = state['epsilon_decay']
+            self.episode_rewards = state['episode_rewards']
+            self.step_count = state['step_count']
+            self.episode_count = state['episode_count']
+            
+            # Restore components
+            self.snn = components['snn']
+            self.ca = components['ca']
+            self.episodic_memory = components['episodic_memory']
+            self.semantic_memory = components['semantic_memory']
+            
+            # Handle HDCEncoder separately
+            hdc_encoder_state = components['hdc_encoder_state']
+            
+            # Recreate HDCEncoder (to properly initialize YOLO)
+            self.hdc_encoder = HDCEncoder(
+                D=hdc_encoder_state['D'], 
+                use_yolo=hdc_encoder_state['use_yolo']
+            )
+            self.hdc_encoder.item_memory = hdc_encoder_state['item_memory']
+            self.hdc_encoder.base_vectors = hdc_encoder_state['base_vectors']
+            
+            print(f"Loaded agent state from {filename}_state.pkl")
+            print(f"Loaded agent components from {filename}_components.pkl")
+            return True
+        except Exception as e:
+            print(f"Error loading model: {e}")
+            return False
         
     def visualize(self, observation=None):
         """

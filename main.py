@@ -240,8 +240,23 @@ def train(args):
     
     # Save model if path specified
     if args.model:
-        agent.save(args.model)
-        print(f"Saved trained model to {args.model}")
+        # Set full path for the model
+        model_path = args.model
+        if not os.path.isabs(model_path):
+            model_path = os.path.join(args.output_dir, os.path.basename(model_path))
+        
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(model_path), exist_ok=True)
+        
+        # Save the model
+        success = agent.save(model_path)
+        if success:
+            print(f"Saved final model to {model_path}")
+        else:
+            print(f"Failed to save model to {model_path}")
+    
+    # Close environment
+    env.close()
 
 
 def test(args):
@@ -260,6 +275,25 @@ def test(args):
     # Create environment and agent
     env = create_environment(args)
     agent = create_agent(args, scenario_config)
+    
+    # Ensure model path exists
+    model_path = args.model
+    if not os.path.isabs(model_path) and not os.path.exists(f"{model_path}_state.pkl"):
+        # Try adding output_dir to the path
+        alt_path = os.path.join(args.output_dir, os.path.basename(model_path))
+        if os.path.exists(f"{alt_path}_state.pkl"):
+            model_path = alt_path
+            print(f"Using model path: {model_path}")
+        else:
+            print(f"Error: Model files not found at {args.model} or {alt_path}")
+            return
+    
+    # Load model
+    print(f"Loading model from {model_path}")
+    if not agent.load(model_path):
+        print(f"Failed to load model from {model_path}. Testing aborted.")
+        env.close()
+        return
     
     # Configure trainer for testing
     trainer_config = {
@@ -349,6 +383,9 @@ def test(args):
     fig_actions.savefig(os.path.join(args.output_dir, f"action_dist_{args.scenario}.png"))
     
     plt.close("all")
+    
+    # Close environment
+    env.close()
 
 
 def evaluate(args):
