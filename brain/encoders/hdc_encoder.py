@@ -38,11 +38,13 @@ class HDCEncoder:
     def __init__(self, D=1000, use_yolo=False):  # D is the dimensionality of HD vectors
         self.D = D
         self.item_memory = {}
-        self._initialize_base_vectors()
         
         # Initialize YOLO detector if requested and available
         self.use_yolo = use_yolo and YOLO_AVAILABLE
         self.yolo_detector = None
+        
+        # Now initialize base vectors after setting use_yolo
+        self._initialize_base_vectors()
         
         if self.use_yolo:
             if not YOLO_AVAILABLE:
