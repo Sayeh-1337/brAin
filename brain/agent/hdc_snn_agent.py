@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 import random
 from collections import deque
 import time
+import os
+import pickle
 
 from brain.encoders.hdc_encoder import HDCEncoder
 from brain.networks.snn import SpikingNeuralNetwork
@@ -28,6 +30,7 @@ class HDCSNNAgent:
     - Cortical sheet analog (Cellular automata for pattern processing)
     - Hippocampus analog (Episodic memory for experience storage)
     - Neocortex analog (Semantic memory for knowledge consolidation)
+    - Visual Object Recognition analog (YOLO detector for object recognition)
     """
     
     def __init__(self, 
@@ -274,23 +277,85 @@ class HDCSNNAgent:
             
     def save(self, filename):
         """
-        Save agent state
+        Save agent state to a file
         
         Args:
             filename: Base filename to save agent components
         """
-        # TODO: Implement save functionality
-        pass
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        
+        # Save agent state
+        state = {
+            'input_shape': self.input_shape,
+            'hd_dim': self.hd_dim,
+            'num_actions': self.num_actions,
+            'learning_rate': self.learning_rate,
+            'use_yolo': self.use_yolo,
+            'epsilon': self.epsilon,
+            'epsilon_min': self.epsilon_min,
+            'epsilon_decay': self.epsilon_decay,
+            'episode_rewards': self.episode_rewards,
+            'step_count': self.step_count,
+            'episode_count': self.episode_count
+        }
+        
+        # Save components
+        components = {
+            'hdc_encoder': self.hdc_encoder,
+            'snn': self.snn,
+            'ca': self.ca,
+            'episodic_memory': self.episodic_memory,
+            'semantic_memory': self.semantic_memory
+        }
+        
+        # Save state and components
+        with open(f"{filename}_state.pkl", 'wb') as f:
+            pickle.dump(state, f)
+            
+        with open(f"{filename}_components.pkl", 'wb') as f:
+            pickle.dump(components, f)
+            
+        print(f"Saved agent state to {filename}_state.pkl")
+        print(f"Saved agent components to {filename}_components.pkl")
         
     def load(self, filename):
         """
-        Load agent state
+        Load agent state from a file
         
         Args:
             filename: Base filename to load agent components
         """
-        # TODO: Implement load functionality
-        pass
+        # Load state
+        with open(f"{filename}_state.pkl", 'rb') as f:
+            state = pickle.load(f)
+            
+        # Load components
+        with open(f"{filename}_components.pkl", 'rb') as f:
+            components = pickle.load(f)
+            
+        # Restore state
+        self.input_shape = state['input_shape']
+        self.hd_dim = state['hd_dim']
+        self.num_actions = state['num_actions']
+        self.learning_rate = state['learning_rate']
+        self.use_yolo = state['use_yolo']
+        self.epsilon = state['epsilon']
+        self.epsilon_min = state['epsilon_min']
+        self.epsilon_decay = state['epsilon_decay']
+        self.episode_rewards = state['episode_rewards']
+        self.step_count = state['step_count']
+        self.episode_count = state['episode_count']
+        
+        # Restore components
+        self.hdc_encoder = components['hdc_encoder']
+        self.snn = components['snn']
+        self.ca = components['ca']
+        self.episodic_memory = components['episodic_memory']
+        self.semantic_memory = components['semantic_memory']
+        
+        print(f"Loaded agent state from {filename}_state.pkl")
+        print(f"Loaded agent components from {filename}_components.pkl")
         
     def visualize(self, observation=None):
         """
