@@ -45,6 +45,24 @@ class AutonomicSystem(nn.Module):
             [0.3, 0.2, 0.3, 0.6],  # growth → [DA, 5HT, NE, ACh]
         ][:n_drives]))
     
+    def process_reward(self, reward):
+        """
+        Process a reward signal and update internal drives
+        
+        Args:
+            reward: The reward value received
+            
+        Returns:
+            dict: Updated neuromodulator levels
+        """
+        # Update drives based on reward
+        self.update_drives(rewards=reward)
+        
+        # Get updated neuromodulator levels
+        _, urgency, neuromod_levels = self.forward()
+        
+        return neuromod_levels
+    
     def update_drives(self, rewards=None, actions=None, contexts=None):
         """
         Update drive values based on rewards, actions, and contexts

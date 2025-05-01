@@ -283,4 +283,57 @@ This project takes inspiration from various fields including:
 - Neuroscience and cognitive architecture
 - Cellular Automata
 - The VizDoom environment
-- YOLO object detection 
+- YOLO object detection
+
+## Optimized Implementation
+
+The brAin system now includes an optimized implementation that leverages GPU acceleration and other performance improvements:
+
+### Key Optimizations
+
+- **GPU Acceleration**: Uses PyTorch tensors on CUDA for faster processing
+- **JIT Compilation**: Critical operations are JIT-compiled for improved performance
+- **Batch Processing**: Processes multiple inputs simultaneously where possible
+- **Efficient Memory Operations**: Optimized vector operations for memory retrieval
+- **Improved HDC Operations**: Faster hyperdimensional computing with vectorized operations
+- **Convolutional CA Updates**: Cellular automata updated using efficient convolution operations
+
+### Performance Gains
+
+The optimized implementation can provide significant speedups, especially for:
+- Large memory capacity settings
+- High-dimensional vectors
+- Complex environments requiring more inference steps
+- Systems with CUDA-compatible GPUs
+
+### Using the Optimized Implementation
+
+To use the optimized version, add the `--use-optimized` flag to any command:
+
+```bash
+# Train with optimized implementation on GPU
+python main.py train --scenario basic --use-optimized
+
+# Specify a particular device
+python main.py train --scenario basic --use-optimized --device cuda:0
+
+# Test with optimizations but disable JIT compilation for debugging
+python main.py test --scenario basic --use-optimized --disable-jit --model models/my_model
+```
+
+### Configuration Options
+
+The following flags control optimization behavior:
+
+- `--use-optimized`: Enables the optimized implementation
+- `--device`: Sets computation device ('cpu', 'cuda', 'cuda:0', etc.)
+- `--disable-jit`: Disables JIT compilation (useful for debugging)
+- `--disable-batch`: Disables batch processing
+- `--seed`: Sets random seed for reproducibility
+
+### Requirements
+
+The optimized implementation requires:
+- PyTorch 1.12.0 or higher
+- CUDA toolkit (for GPU acceleration)
+- Additional packages listed in requirements.txt 

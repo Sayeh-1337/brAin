@@ -101,6 +101,73 @@ class CerebellarCorrection(nn.Module):
             
         return purkinje_out, predicted_error, corrected
     
+    def update(self, context, command, reward, learning_rate=0.01):
+        """
+        Process reward into error signal and update cerebellar model
+        
+        Args:
+            context: Input context tensor
+            command: Action tensor/command that was executed
+            reward: Scalar reward received
+            learning_rate: Learning rate for updates
+            
+        Returns:
+            float: Error loss
+        """
+        # Convert reward to error signal
+        # For positive reward, reduce error for chosen action
+        # For negative reward, increase error for chosen action
+        error = torch.zeros_like(command)
+        
+        # Handle reward as float, tensor, or batch
+        if isinstance(reward, (int, float)):
+            reward_value = reward
+        elif isinstance(reward, torch.Tensor):
+            if reward.dim() == 0:  # Scalar tensor
+                reward_value = reward.item()
+            else:
+                # Use mean for batched rewards
+                reward_value = reward.mean().item()
+        else:
+            # Handle numpy arrays or other types
+            reward_value = float(reward)
+            
+        # Create error signal based on reward
+        if reward_value > 0:
+            # Positive reward - signal was better than expected
+            error = -0.2 * torch.ones_like(command)
+            # Emphasize the specific action taken
+            _, max_idx = torch.max(command, dim=-1)
+            if error.dim() > 1:
+                for i in range(error.size(0)):
+                    error[i, max_idx[i]] = -0.8  # Stronger negative error (better than expected)
+            else:
+                error[max_idx] = -0.8
+        elif reward_value < 0:
+            # Negative reward - signal was worse than expected
+            error = 0.2 * torch.ones_like(command)
+            # Emphasize the specific action taken
+            _, max_idx = torch.max(command, dim=-1)
+            if error.dim() > 1:
+                for i in range(error.size(0)):
+                    error[i, max_idx[i]] = 0.8  # Stronger positive error (worse than expected)
+            else:
+                error[max_idx] = 0.8
+        else:
+            # No reward - small corrective signal based on action
+            error = 0.1 * torch.ones_like(command)
+        
+        # Ensure context is properly dimensioned for the update_error call
+        if context.dim() == 1 and command.dim() > 1:
+            # If context is 1D but command is batched, expand context
+            context = context.unsqueeze(0)
+        elif context.dim() > 1 and command.dim() == 1:
+            # If context is batched but command is 1D, expand command
+            command = command.unsqueeze(0)
+        
+        # Update model with computed error
+        return self.update_error(context, command, error, learning_rate)
+    
     def update_error(self, context, command, observed_error, learning_rate=0.01):
         """
         Update cerebellar model with observed error
@@ -114,7 +181,20 @@ class CerebellarCorrection(nn.Module):
         Returns:
             float: Error loss
         """
-        # Store error in memory
+        # Ensure all inputs have proper dimensions
+        if context.dim() == 1:
+            context = context.unsqueeze(0)  # Add batch dimension
+        
+        if observed_error.dim() == 1:
+            observed_error = observed_error.unsqueeze(0)  # Add batch dimension
+            
+        if command.dim() == 1:
+            command = command.unsqueeze(0)  # Add batch dimension
+            
+        # Get batch size
+        batch_size = context.size(0)
+            
+        # Store error in memory (average across batch if needed)
         self.context_memory[self.memory_index] = context.detach().mean(0)
         self.error_memory[self.memory_index] = observed_error.detach().mean(0)
         self.memory_strength[self.memory_index] = 1.0  # New memory is strong
@@ -123,24 +203,39 @@ class CerebellarCorrection(nn.Module):
         # Decay other memory strengths slightly
         self.memory_strength = 0.99 * self.memory_strength
         
+        # Process through granule cell layer (expansion)
+        granule_out = self.granule_cells(context)  # [batch_size, input_size*10]
+        
+        # Update parallel fiber activity trace
+        self.pf_trace = self.pf_trace_decay * self.pf_trace + (1-self.pf_trace_decay) * granule_out.detach().mean(0)
+        
         # Update Purkinje cells based on error
-        # This is simplified LTD/LTP at parallel fiber-Purkinje cell synapses
         with torch.no_grad():
-            # Get granule cell output
-            granule_out = self.granule_cells(context)
+            # Reshape for multiplication 
+            # observed_error: [batch_size, output_size]
+            # granule_out: [batch_size, input_size*10]
             
-            # Update Purkinje weights based on error correlation with granule activity
-            error_expanded = observed_error.unsqueeze(1).expand(-1, granule_out.size(1))
+            # We need to compute weight updates for each output dimension based on error correlation
+            weight_updates = torch.zeros((self.output_size, granule_out.size(1)), 
+                                       device=granule_out.device)
             
-            # Weight update proportional to error and granule activity (LTD)
-            # Multiply activity by error to get direction (high error + high activity = decrease weight)
-            weight_updates = -learning_rate * torch.mean(error_expanded * granule_out, dim=0)
-            
+            # For each output dimension
+            for i in range(self.output_size):
+                # Extract errors for this output dimension across batch
+                errors_i = observed_error[:, i].view(batch_size, 1)  # [batch_size, 1]
+                
+                # Weight update is proportional to error and granule activity
+                # High error + high activity = decrease weight (LTD)
+                update_i = -learning_rate * (errors_i * granule_out)  # [batch_size, input_size*10]
+                
+                # Average across batch
+                weight_updates[i] = update_i.mean(0)  # [input_size*10]
+                
             # Apply updates to Purkinje cells
-            self.purkinje_cells.weight.data += weight_updates.unsqueeze(0).expand(self.output_size, -1)
+            self.purkinje_cells.weight.data += weight_updates
             
         # Also update error predictor through backprop
-        predicted = self.error_predictor(context)
+        predicted = self.error_predictor(context)  # [batch_size, output_size]
         error_loss = torch.nn.functional.mse_loss(predicted, observed_error)
         error_loss.backward()
         

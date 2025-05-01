@@ -15,11 +15,15 @@ from config.scenarios import SCENARIO_CONFIGS
 import os
 import json
 import time
+import random
+import torch
 
 from brain.agent.hdc_snn_agent import HDCSNNAgent
+from brain.agent.optimized_agent import OptimizedAgent  # Import the optimized agent
 from brain.agent.trainer import AgentTrainer
 from environment.doom_environment import DoomEnvironment
 from evaluation.metrics import *
+from brain.utils.config import config, set_config  # Import config utilities
 
 
 def parse_args():
@@ -128,6 +132,39 @@ def parse_args():
         help="Visualize agent's internal representations during execution"
     )
     
+    # Optimization options
+    parser.add_argument(
+        "--use-optimized", 
+        action="store_true",
+        help="Use the optimized implementation with GPU acceleration"
+    )
+    
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="Device to use (cpu, cuda, cuda:0, etc.)"
+    )
+    
+    parser.add_argument(
+        "--disable-jit",
+        action="store_true",
+        help="Disable JIT compilation for debugging"
+    )
+    
+    parser.add_argument(
+        "--disable-batch",
+        action="store_true",
+        help="Disable batch processing"
+    )
+    
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducibility"
+    )
+    
     return parser.parse_args()
 
 
@@ -151,18 +188,58 @@ def create_agent(args, scenario_config):
         if not args.ca_height and "ca_height" in optimal:
             ca_height = optimal["ca_height"]
     
-    # Create agent
-    agent = HDCSNNAgent(
-        input_shape=(120, 160, 3),
-        hd_dim=hd_dim,
-        snn_neurons=args.snn_neurons,
-        num_actions=5,  # Fixed for VizDoom
-        ca_width=ca_width,
-        ca_height=ca_height,
-        memory_capacity=10000,
-        learning_rate=learning_rate,
-        use_yolo=args.use_yolo
-    )
+    # Set up device
+    device = args.device
+    if device is None:
+        # Auto-detect device (use GPU if available)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+    # Configure optimizations
+    if args.disable_jit:
+        set_config(use_jit_compile=False)
+    if args.disable_batch:
+        set_config(batch_process=False)
+        
+    # Set random seed if provided
+    if args.seed is not None:
+        torch.manual_seed(args.seed)
+        np.random.seed(args.seed)
+        random.seed(args.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(args.seed)
+            torch.cuda.manual_seed_all(args.seed)
+            
+    # Update config
+    set_config(hd_dimension=hd_dim, device=device)
+    
+    if args.use_optimized:
+        # Create optimized agent
+        print(f"Creating optimized agent on device: {device}")
+        agent = OptimizedAgent(
+            input_shape=(120, 160, 3),
+            hd_dim=hd_dim,
+            snn_neurons=args.snn_neurons,
+            num_actions=5,  # Fixed for VizDoom
+            ca_width=ca_width,
+            ca_height=ca_height,
+            memory_capacity=10000,
+            learning_rate=learning_rate,
+            use_yolo=args.use_yolo,
+            device=device
+        )
+    else:
+        # Create standard agent
+        agent = HDCSNNAgent(
+            input_shape=(120, 160, 3),
+            hd_dim=hd_dim,
+            snn_neurons=args.snn_neurons,
+            num_actions=5,  # Fixed for VizDoom
+            ca_width=ca_width,
+            ca_height=ca_height,
+            memory_capacity=10000,
+            learning_rate=learning_rate,
+            use_yolo=args.use_yolo
+        )
     
     # Enable visualization if requested
     agent.visualize_internals = args.visualize_internals
@@ -206,6 +283,14 @@ def train(args):
     if args.use_yolo:
         print("Using YOLO object detection for enhanced perception")
     
+    if args.use_optimized:
+        print("Using optimized implementation with GPU acceleration")
+        if args.device:
+            print(f"Device: {args.device}")
+        else:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            print(f"Auto-selected device: {device}")
+    
     # Create environment and agent
     env = create_environment(args)
     agent = create_agent(args, scenario_config)
@@ -248,290 +333,422 @@ def train(args):
         # Ensure directory exists
         os.makedirs(os.path.dirname(model_path), exist_ok=True)
         
-        # Save the model
-        success = agent.save(model_path)
-        if success:
-            print(f"Saved final model to {model_path}")
-        else:
-            print(f"Failed to save model to {model_path}")
+        # Save model
+        print(f"Saving model to {model_path}")
+        agent.save(model_path)
+        
+        # Save configuration used
+        config_path = os.path.join(os.path.dirname(model_path), 
+                                   f"{os.path.basename(model_path)}_config.json")
+                                   
+        config_data = {
+            "scenario": args.scenario,
+            "hd_dim": agent.hd_dim,
+            "snn_neurons": args.snn_neurons,
+            "ca_width": agent.ca.width if hasattr(agent.ca, 'width') else ca_width,
+            "ca_height": agent.ca.height if hasattr(agent.ca, 'height') else ca_height,
+            "learning_rate": agent.learning_rate,
+            "use_yolo": agent.use_yolo,
+            "use_optimized": args.use_optimized,
+            "device": args.device,
+            "training_episodes": args.episodes,
+            "training_time_seconds": total_time,
+            "jit_compiled": config.use_jit_compile,
+            "batch_processing": config.batch_process
+        }
+        
+        with open(config_path, 'w') as f:
+            json.dump(config_data, f, indent=4)
+            
+        print(f"Configuration saved to {config_path}")
     
-    # Close environment
-    env.close()
+    # Return metrics for evaluating performance
+    return metrics
 
 
 def test(args):
-    """Test the agent on a scenario"""
-    if not args.model:
-        print("Error: Must specify a model path with --model")
-        return
-        
+    """Test the agent"""
     # Get scenario config
     scenario_config = SCENARIO_CONFIGS[args.scenario]
-    print(f"Testing on scenario: {args.scenario} - {scenario_config['description']}")
-    
-    if args.use_yolo:
-        print("Using YOLO object detection for enhanced perception")
+    print(f"Testing on scenario: {args.scenario}")
     
     # Create environment and agent
     env = create_environment(args)
     agent = create_agent(args, scenario_config)
     
-    # Ensure model path exists
-    model_path = args.model
-    if not os.path.isabs(model_path) and not os.path.exists(f"{model_path}_state.pkl"):
-        # Try adding output_dir to the path
-        alt_path = os.path.join(args.output_dir, os.path.basename(model_path))
-        if os.path.exists(f"{alt_path}_state.pkl"):
-            model_path = alt_path
-            print(f"Using model path: {model_path}")
-        else:
-            print(f"Error: Model files not found at {args.model} or {alt_path}")
-            return
+    # Check if model is specified
+    if not args.model:
+        print("Warning: No model specified for testing. Using untrained agent.")
     
-    # Load model
-    print(f"Loading model from {model_path}")
-    if not agent.load(model_path):
-        print(f"Failed to load model from {model_path}. Testing aborted.")
-        env.close()
-        return
-    
-    # Configure trainer for testing
-    trainer_config = {
-        "render_during_eval": args.render,
-        "output_dir": args.output_dir
-    }
-    
-    # Create trainer
-    trainer = AgentTrainer(agent, env, trainer_config)
-    
-    # Test the agent
-    num_test_episodes = 10
-    print(f"Running {num_test_episodes} test episodes...")
-    
+    # Set up metrics tracking
     rewards = []
     steps = []
-    successes = []
-    actions_taken = []
+    completed = []
     
-    # Run test episodes
-    for episode in range(num_test_episodes):
+    # Test the agent for a specified number of episodes
+    n_episodes = min(args.episodes, 100)  # Cap test episodes
+    
+    for episode in range(n_episodes):
+        # Reset environment and agent
         observation = env.reset()
         agent.reset()
         
-        episode_reward = 0
-        episode_steps = 0
-        episode_actions = []
-        done = False
+        total_reward = 0
+        is_done = False
+        step = 0
         
-        while not done:
+        while not is_done:
+            # Select action
+            action = agent.act(observation, deterministic=True)
+            
+            # Execute action
+            next_observation, reward, is_done, info = env.step(action)
+            
+            # Update metrics
+            total_reward += reward
+            step += 1
+            
+            # Render if requested
             if args.render:
                 env.render()
                 
-            # Get motion information
-            motion = env.get_motion_frames()
-            
-            # Select action deterministically
-            action = agent.act(observation, motion, deterministic=True)
-            episode_actions.append(action)
-            
-            # Take action
-            observation, reward, done, info = env.step(action)
-            
-            # Update metrics
-            episode_reward += reward
-            episode_steps += 1
-            
-            # Visualization
-            if args.visualize_internals:
-                agent.visualize(observation)
+                # Visualize internal states if requested
+                if args.visualize_internals:
+                    vis_data = agent.visualize(observation)
+                    # Visualization code here
                 
+            # Update observation
+            observation = next_observation
+            
             # Break if episode is too long
-            if episode_steps >= 1000:
+            if step >= 1000:
                 break
                 
-        # Record results
-        rewards.append(episode_reward)
-        steps.append(episode_steps)
-        successes.append(episode_reward > 0)  # Simple success criterion
-        actions_taken.extend(episode_actions)
+        # Update metrics
+        rewards.append(total_reward)
+        steps.append(step)
+        completed.append(info.get('completed', False))
         
-        print(f"Episode {episode+1}: Reward = {episode_reward}, Steps = {episode_steps}")
+        # Print episode summary
+        print(f"Episode {episode+1}/{n_episodes}: Reward = {total_reward}, Steps = {step}, Completed = {info.get('completed', False)}")
+    
+    # Print overall performance
+    print("\nTest Results:")
+    print(f"Average Reward: {np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
+    print(f"Average Steps: {np.mean(steps):.2f} ± {np.std(steps):.2f}")
+    print(f"Completion Rate: {np.mean(completed)*100:.2f}%")
+    
+    # Save results if output directory specified
+    if args.output_dir:
+        # Create results directory
+        os.makedirs(args.output_dir, exist_ok=True)
         
-    # Calculate and print metrics
-    performance_metrics = calculate_performance_metrics(rewards, steps, successes)
-    action_metrics = calculate_action_metrics(actions_taken, rewards[:len(actions_taken)])
-    
-    # Combine metrics
-    all_metrics = {**performance_metrics, **action_metrics}
-    
-    # Create report
-    report = create_summary_report(all_metrics)
-    print("\n" + report)
-    
-    # Save report
-    report_path = os.path.join(args.output_dir, f"test_report_{args.scenario}.txt")
-    with open(report_path, "w") as f:
-        f.write(report)
+        # Save test results
+        results = {
+            "scenario": args.scenario,
+            "model": args.model,
+            "num_episodes": n_episodes,
+            "average_reward": float(np.mean(rewards)),
+            "std_reward": float(np.std(rewards)),
+            "average_steps": float(np.mean(steps)),
+            "std_steps": float(np.std(steps)),
+            "completion_rate": float(np.mean(completed)),
+            "all_rewards": rewards,
+            "all_steps": steps,
+            "all_completed": completed,
+            "use_optimized": args.use_optimized
+        }
         
-    print(f"Saved test report to {report_path}")
+        # Add optimization details if using optimized agent
+        if args.use_optimized:
+            results.update({
+                "device": args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu"),
+                "jit_compiled": config.use_jit_compile,
+                "batch_processing": config.batch_process
+            })
+            
+            if hasattr(agent, 'forward_times') and agent.forward_times:
+                results["avg_forward_time"] = sum(agent.forward_times) / len(agent.forward_times)
+        
+        # Save to file
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        results_file = os.path.join(args.output_dir, f"test_results_{args.scenario}_{timestamp}.json")
+        
+        with open(results_file, 'w') as f:
+            json.dump(results, f, indent=4)
+            
+        print(f"Test results saved to {results_file}")
     
-    # Create and save plots
-    fig_reward = plot_reward_distribution(rewards, title=f"Reward Distribution - {args.scenario}")
-    fig_reward.savefig(os.path.join(args.output_dir, f"reward_dist_{args.scenario}.png"))
-    
-    fig_actions = plot_action_distribution(actions_taken, action_names=env.get_action_names())
-    fig_actions.savefig(os.path.join(args.output_dir, f"action_dist_{args.scenario}.png"))
-    
-    plt.close("all")
-    
-    # Close environment
-    env.close()
+    return rewards, steps, completed
 
 
 def evaluate(args):
-    """Run comprehensive evaluation across multiple scenarios"""
+    """Evaluate the agent with additional metrics"""
+    # Get scenario config
+    scenario_config = SCENARIO_CONFIGS[args.scenario]
+    print(f"Evaluating on scenario: {args.scenario}")
+    
+    # Create environment and agent
+    env = create_environment(args)
+    agent = create_agent(args, scenario_config)
+    
+    # Check if model is specified
     if not args.model:
-        print("Error: Must specify a model path with --model")
-        return
+        print("Warning: No model specified for evaluation. Using untrained agent.")
+    
+    # Initialize metrics calculators
+    sample_efficiency = SampleEfficiencyMetric()
+    reaction_time = ReactionTimeMetric()
+    exploration = ExplorationMetric(env.action_space.n)
+    stability = StabilityMetric()
+    
+    # Test the agent for a specified number of episodes
+    n_episodes = min(args.episodes, 50)  # Cap evaluation episodes
+    
+    for episode in range(n_episodes):
+        # Reset environment, agent and metrics
+        observation = env.reset()
+        agent.reset()
         
-    print("Running comprehensive evaluation across multiple scenarios")
-    
-    if args.use_yolo:
-        print("Using YOLO object detection for enhanced perception")
-    
-    # List of scenarios to evaluate on
-    scenarios = list(SCENARIO_CONFIGS.keys())
-    
-    # Results for each scenario
-    scenario_results = {}
-    
-    for scenario in scenarios:
-        print(f"\nEvaluating on scenario: {scenario}")
+        exploration.reset()
+        reaction_time.reset()
         
-        # Create environment and agent for this scenario
-        args.scenario = scenario
-        env = create_environment(args)
-        agent = create_agent(args, SCENARIO_CONFIGS[scenario])
+        total_reward = 0
+        is_done = False
+        step = 0
         
-        # Configure trainer
-        trainer_config = {
-            "render_during_eval": args.render,
-            "output_dir": args.output_dir
+        states, actions, rewards = [], [], []
+        
+        while not is_done:
+            # Select action
+            action = agent.act(observation)
+            
+            # Track for metrics
+            reaction_time.record_decision_time()
+            exploration.record_action(action)
+            
+            # Execute action
+            next_observation, reward, is_done, info = env.step(action)
+            
+            # Store for stability metrics
+            states.append(observation)
+            actions.append(action)
+            rewards.append(reward)
+            
+            # Update metrics
+            total_reward += reward
+            step += 1
+            
+            # Record sample efficiency data
+            sample_efficiency.record_step(
+                observation, action, reward, next_observation, is_done)
+            
+            # Render if requested
+            if args.render:
+                env.render()
+                
+            # Update observation
+            observation = next_observation
+            
+            # Break if episode is too long
+            if step >= 1000:
+                break
+                
+        # Record episode completion for sample efficiency
+        sample_efficiency.record_episode_result(total_reward, info.get('completed', False))
+        
+        # Calculate stability metrics for the episode
+        stability.record_episode(states, actions, rewards)
+        
+        # Print episode summary
+        print(f"Episode {episode+1}/{n_episodes}: Reward = {total_reward}, Steps = {step}")
+    
+    # Calculate final metrics
+    efficiency_score = sample_efficiency.calculate()
+    avg_reaction_time = reaction_time.calculate()
+    exploration_score = exploration.calculate()
+    stability_score = stability.calculate()
+    
+    # Print evaluation results
+    print("\nEvaluation Results:")
+    print(f"Sample Efficiency Score: {efficiency_score:.4f}")
+    print(f"Average Reaction Time: {avg_reaction_time:.4f} seconds")
+    print(f"Exploration Score: {exploration_score:.4f}")
+    print(f"Stability Score: {stability_score:.4f}")
+    
+    # Performance comparison if using optimized agent
+    if args.use_optimized and hasattr(agent, 'forward_times') and agent.forward_times:
+        avg_forward_time = sum(agent.forward_times) / len(agent.forward_times)
+        print(f"Average Forward Pass Time: {avg_forward_time*1000:.2f} ms")
+    
+    # Save results if output directory specified
+    if args.output_dir:
+        # Create results directory
+        os.makedirs(args.output_dir, exist_ok=True)
+        
+        # Save evaluation results
+        results = {
+            "scenario": args.scenario,
+            "model": args.model,
+            "num_episodes": n_episodes,
+            "sample_efficiency_score": float(efficiency_score),
+            "avg_reaction_time": float(avg_reaction_time),
+            "exploration_score": float(exploration_score),
+            "stability_score": float(stability_score),
+            "use_optimized": args.use_optimized
         }
         
-        # Create trainer
-        trainer = AgentTrainer(agent, env, trainer_config)
+        # Add optimization details if using optimized agent
+        if args.use_optimized:
+            results.update({
+                "device": args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu"),
+                "jit_compiled": config.use_jit_compile,
+                "batch_processing": config.batch_process
+            })
+            
+            if hasattr(agent, 'forward_times') and agent.forward_times:
+                results["avg_forward_time"] = sum(agent.forward_times) / len(agent.forward_times)
         
-        # Run scenario evaluation
-        results = trainer.run_scenario(
-            SCENARIO_CONFIGS[scenario],
-            num_episodes=5,
-            record=False
-        )
+        # Save to file
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        results_file = os.path.join(args.output_dir, f"eval_results_{args.scenario}_{timestamp}.json")
         
-        # Store results
-        scenario_results[scenario] = results
-        
-        # Close environment
-        env.close()
-        
-    # Calculate generalization metrics
-    gen_metrics = evaluate_generalization(scenario_results)
+        with open(results_file, 'w') as f:
+            json.dump(results, f, indent=4)
+            
+        print(f"Evaluation results saved to {results_file}")
     
-    # Print summary
-    print("\n" + "="*50)
-    print("GENERALIZATION EVALUATION SUMMARY")
-    print("="*50)
-    print(f"Average Success Rate: {gen_metrics['average_success_rate']*100:.2f}%")
-    print(f"Success Rate Std Dev: {gen_metrics['success_rate_std']*100:.2f}%")
-    print(f"Best Scenario: {gen_metrics['max_success_scenario']} "
-          f"({gen_metrics['scenario_success_rates'][gen_metrics['max_success_scenario']]*100:.2f}%)")
-    print(f"Worst Scenario: {gen_metrics['min_success_scenario']} "
-          f"({gen_metrics['scenario_success_rates'][gen_metrics['min_success_scenario']]*100:.2f}%)")
-    print(f"Generalization Score: {gen_metrics['generalization_score']*100:.2f}%")
-    
-    # Create and save scenario comparison plot
-    fig = plot_scenario_comparison(scenario_results, metric="rewards")
-    fig.savefig(os.path.join(args.output_dir, "scenario_comparison.png"))
-    plt.close(fig)
-    
-    # Save detailed metrics
-    metrics_path = os.path.join(args.output_dir, "generalization_metrics.json")
-    with open(metrics_path, "w") as f:
-        # Convert numpy values to Python primitives for JSON serialization
-        serializable_metrics = {
-            k: float(v) if isinstance(v, np.floating) else v
-            for k, v in gen_metrics.items()
-        }
-        json.dump(serializable_metrics, f, indent=2)
-        
-    print(f"Saved generalization metrics to {metrics_path}")
+    return {
+        "efficiency": efficiency_score,
+        "reaction_time": avg_reaction_time,
+        "exploration": exploration_score,
+        "stability": stability_score
+    }
 
 
 def visualize(args):
     """Visualize agent's internal representations"""
-    if not args.model:
-        print("Error: Must specify a model path with --model")
-        return
+    # Get scenario config
+    scenario_config = SCENARIO_CONFIGS[args.scenario]
+    print(f"Visualizing agent on scenario: {args.scenario}")
     
-    if args.use_yolo:
-        print("Using YOLO object detection for enhanced perception")
-        
     # Create environment and agent
     env = create_environment(args)
-    agent = create_agent(args, SCENARIO_CONFIGS[args.scenario])
+    agent = create_agent(args, scenario_config)
     
-    # Enable visualization
+    # Check if model is specified
+    if not args.model:
+        print("Warning: No model specified for visualization. Using untrained agent.")
+    
+    # Enable internal visualization
     agent.visualize_internals = True
     
-    print("Running visualization mode. Press Ctrl+C to exit.")
+    # Initialize visualization
+    plt.ion()  # Enable interactive mode
+    fig, axes = plt.subplots(2, 3, figsize=(15, 8))
+    fig.tight_layout(pad=3.0)
     
-    try:
-        # Run a few episodes for visualization
-        for episode in range(3):
-            observation = env.reset()
-            agent.reset()
-            
-            done = False
-            step = 0
-            
-            while not done and step < 500:
-                # Always render in visualization mode
-                env.render()
-                
-                # Get motion information
-                motion = env.get_motion_frames()
-                
-                # Select action
-                action = agent.act(observation, motion, deterministic=True)
-                
-                # Take action
-                observation, reward, done, info = env.step(action)
-                
-                # Visualize internal state
-                agent.visualize(observation)
-                
-                step += 1
-                
-                # Slow down visualization
-                time.sleep(0.05)
-                
-    except KeyboardInterrupt:
-        print("Visualization stopped by user")
+    # Run for a few episodes
+    n_episodes = min(args.episodes, 10)  # Cap visualization episodes
+    
+    for episode in range(n_episodes):
+        # Reset environment and agent
+        observation = env.reset()
+        agent.reset()
         
-    finally:
-        env.close()
+        is_done = False
+        step = 0
+        
+        while not is_done:
+            # Update visualization
+            plt.suptitle(f"Episode {episode+1}, Step {step+1}", fontsize=16)
+            
+            # Get visualization data
+            vis_data = agent.visualize(observation)
+            
+            # Plot environment view
+            axes[0, 0].clear()
+            axes[0, 0].imshow(observation)
+            axes[0, 0].set_title("Environment View")
+            axes[0, 0].axis('off')
+            
+            # Plot cellular automata state
+            if "ca_grid" in vis_data:
+                axes[0, 1].clear()
+                axes[0, 1].imshow(vis_data["ca_grid"], cmap='viridis')
+                axes[0, 1].set_title("Cellular Automata State")
+                axes[0, 1].axis('off')
+                
+            # Plot episodic memory stats
+            if "episodic_memory" in vis_data:
+                axes[0, 2].clear()
+                mem_stats = vis_data["episodic_memory"]
+                mem_data = [mem_stats["size"], mem_stats["capacity"] - mem_stats["size"]]
+                axes[0, 2].pie(mem_data, labels=["Used", "Free"], autopct='%1.1f%%')
+                axes[0, 2].set_title(f"Episodic Memory Usage: {mem_stats['size']}/{mem_stats['capacity']}")
+                
+            # Plot neuromodulator levels
+            if "neuromodulators" in vis_data:
+                axes[1, 0].clear()
+                neuromod = vis_data["neuromodulators"]
+                labels = list(neuromod.keys())
+                values = list(neuromod.values())
+                x = np.arange(len(labels))
+                axes[1, 0].bar(x, values, width=0.6)
+                axes[1, 0].set_xticks(x)
+                axes[1, 0].set_xticklabels(labels, rotation=45)
+                axes[1, 0].set_title("Neuromodulator Levels")
+                axes[1, 0].set_ylim(0, 1)
+                
+            # Plot timing information if available
+            if "avg_forward_time" in vis_data:
+                axes[1, 1].clear()
+                timing_data = [vis_data.get("avg_forward_time", 0) * 1000, 
+                              vis_data.get("avg_learning_time", 0) * 1000]
+                axes[1, 1].bar(["Forward (ms)", "Learning (ms)"], timing_data)
+                axes[1, 1].set_title("Processing Time")
+                
+            # Plot exploration rate
+            axes[1, 2].clear()
+            axes[1, 2].plot([0, 1], [vis_data.get("epsilon", 0), vis_data.get("epsilon", 0)], 'r-', linewidth=2)
+            axes[1, 2].set_title(f"Exploration Rate: {vis_data.get('epsilon', 0):.3f}")
+            axes[1, 2].set_xlim(0, 1)
+            axes[1, 2].set_ylim(0, 1)
+            
+            # Update the figure
+            plt.draw()
+            plt.pause(0.01)
+            
+            # Select action
+            action = agent.act(observation)
+            
+            # Execute action
+            next_observation, reward, is_done, info = env.step(action)
+            
+            # Render environment
+            env.render()
+            
+            # Update observation
+            observation = next_observation
+            
+            step += 1
+            
+            # Break if episode is too long
+            if step >= 1000:
+                break
+        
+        print(f"Episode {episode+1}/{n_episodes} completed in {step} steps")
+    
+    # Wait for user to close the window
+    plt.ioff()
+    plt.show()
 
 
 def main():
     """Main entry point"""
     args = parse_args()
     
-    # Create output directory if it doesn't exist
-    if not os.path.exists(args.output_dir):
-        os.makedirs(args.output_dir)
-    
-    # Execute the requested command
+    # Execute the specified command
     if args.command == "train":
         train(args)
     elif args.command == "test":

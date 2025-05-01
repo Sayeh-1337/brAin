@@ -10,6 +10,13 @@ Implements a brain-inspired semantic memory system that stores:
 import numpy as np
 from collections import defaultdict
 
+# Helper functions for defaultdict to replace lambdas
+def default_dict_list():
+    return defaultdict(list)
+
+def default_int():
+    return defaultdict(int)
+
 class SemanticMemory:
     """
     NEOCORTEX ANALOG
@@ -29,14 +36,14 @@ class SemanticMemory:
         self.vector_dim = vector_dim
         
         # Main knowledge store: state -> action -> outcome
-        self.state_action_outcomes = defaultdict(lambda: defaultdict(list))
+        self.state_action_outcomes = defaultdict(default_dict_list)
         
         # Context vectors for similarity calculation
         self.context_vectors = {}
         
         # Success statistics
-        self.action_success_counts = defaultdict(lambda: defaultdict(int))
-        self.action_total_counts = defaultdict(lambda: defaultdict(int))
+        self.action_success_counts = defaultdict(default_int)
+        self.action_total_counts = defaultdict(default_int)
         
         # Custom associations
         self.associations = defaultdict(list)
@@ -45,6 +52,20 @@ class SemanticMemory:
         """Convert a vector to a hashable representation"""
         if vector is None:
             return None
+            
+        # Handle PyTorch tensors
+        if hasattr(vector, 'detach') and hasattr(vector, 'cpu') and hasattr(vector, 'numpy'):
+            # Convert PyTorch tensor to numpy array
+            vector = vector.detach().cpu().numpy()
+        
+        # Make sure we're working with a numpy array
+        if not isinstance(vector, np.ndarray):
+            try:
+                vector = np.array(vector)
+            except Exception as e:
+                print(f"Error converting vector to numpy array: {e}")
+                return None
+                
         # Round values and convert to tuple for hashing
         return tuple((vector * 100).astype(int))
         

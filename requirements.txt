@@ -24,4 +24,9 @@ pygame>=2.1.0  # For additional visualization if needed
 
 # Optional visualization for brain systems
 networkx>=2.8.0  # For neural network visualization
-scikit-learn>=1.0.0  # For dimensionality reduction in visualizations 
+scikit-learn>=1.0.0  # For dimensionality reduction in visualizations
+
+# Optimization dependencies
+numba>=0.56.0  # For JIT compilation of Python code
+psutil>=5.9.0  # For system resource monitoring
+typing-extensions>=4.3.0  # For improved type annotations 
