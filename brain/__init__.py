@@ -1,11 +1,29 @@
 """
-Brain module - Core brain-inspired cognitive architecture
+Brain-inspired AI Architecture
 
-This module contains the brain-inspired components of the agent architecture,
-including perception, memory, neural networks, and agent implementations.
-It is organized to mimic functional regions of the brain, with each
-submodule representing a different brain region or function.
+This module implements a brain-inspired AI architecture combining:
+- Hyperdimensional computing (HDC) for efficient encoding
+- Spiking neural networks (SNN) for biologically plausible learning
+- Cellular automata (CA) for emergent pattern formation
+- Episodic and semantic memory systems
+- Brain systems for biologically plausible information processing
 """
+
+from brain import agent
+from brain import encoders
+from brain import memory
+from brain import networks
+from brain import utils
+from brain import systems
+
+__all__ = [
+    'agent',
+    'encoders',
+    'memory',
+    'networks',
+    'utils',
+    'systems',
+]
 
 # Version info
 __version__ = '0.1.0'

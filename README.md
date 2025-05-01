@@ -1,17 +1,119 @@
-# brAin: Brain-Inspired Doom Agent with HDC-SNN Architecture
+# brAin - Brain-Inspired Artificial Intelligence
 
-A biologically-inspired artificial intelligence agent that combines **Hyperdimensional Computing** and **Spiking Neural Networks** for playing Doom scenarios. This project implements a brain-inspired cognitive architecture with modules analogous to different brain regions.
+A brain-inspired AI architecture that integrates multiple cognitive mechanisms to create a more human-like learning agent.
 
-## Architecture Overview
+## Architecture
 
-The agent architecture is designed to mimic the functional organization of the brain:
+The architecture combines:
 
-- **Visual Cortex Analog** (HDCEncoder): Processes visual input using hyperdimensional computing, inspired by the visual processing stream from V1-V5.
-- **Basal Ganglia / Motor Cortex Analog** (SpikingNeuralNetwork): Handles action selection and temporal processing using spiking neural dynamics.
-- **Cortical Sheet Analog** (CellularAutomata): Implements pattern formation and emergent dynamics through cellular automata.
-- **Hippocampus Analog** (EpisodicMemory): Stores experiences and enables episodic learning.
-- **Neocortex Analog** (SemanticMemory): Stores knowledge and associations for semantic understanding.
-- **Visual Object Recognition Analog** (YOLODetector): Implements object detection using YOLO, mimicking the ventral stream's object recognition capabilities.
+1. **Hyperdimensional Computing (HDC)** - For symbolic and distributed representation of sensory inputs
+2. **Spiking Neural Networks (SNN)** - For temporal processing and learning
+3. **Cellular Automata (CA)** - For emergent pattern formation and processing
+4. **Memory Systems** - For episodic and semantic memory
+5. **Brain Systems** - For biologically-inspired information processing
+
+### Core Brain Systems
+
+The system incorporates these key biological components:
+
+- **Thalamic Gating** - Filters sensory inputs based on attention and relevance
+- **Basal Ganglia Loop** - Action selection through direct (Go) and indirect (NoGo) pathways
+- **Cerebellar Error Correction** - Motor command refinement and error prediction
+- **Autonomic System** - Homeostatic regulation of drives and needs
+
+## Key Features
+
+- Combines multiple brain-inspired approaches to create a more cognitive architecture
+- Learns from few examples using HDC semantic binding and SNN temporal dynamics
+- Forms emergent patterns through cellular automata processing
+- Stores and recalls episodic memories for experience replay
+- Builds semantic knowledge through memory consolidation
+- Implements biologically-plausible action selection and sensory filtering
+- Corrects motor errors through cerebellar predictive processing
+- Maintains homeostatic balance through autonomic regulation
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/brAin.git
+cd brAin
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+## Usage
+
+```python
+from brain.agent.hdc_snn_agent import HDCSNNAgent
+
+# Create agent
+agent = HDCSNNAgent(
+    input_shape=(120, 160, 3),
+    hd_dim=1000,
+    snn_neurons=500,
+    num_actions=5
+)
+
+# Train agent
+for episode in range(1000):
+    observation = environment.reset()
+    done = False
+    
+    while not done:
+        # Select action
+        action = agent.act(observation)
+        
+        # Execute action in environment
+        next_observation, reward, done, info = environment.step(action)
+        
+        # Learn from experience
+        agent.learn(observation, action, reward, next_observation, done)
+        
+        observation = next_observation
+        
+    # Process episodic memory
+    agent.replay_experience(batch_size=32)
+```
+
+## Brain Systems Details
+
+### Thalamic Gating System
+
+The thalamic gating system implements:
+- Attention-based filtering of sensory inputs
+- Multi-channel sensory processing
+- Salience detection for information flow control
+- Dynamic working memory trace
+
+### Basal Ganglia Action Selection
+
+The basal ganglia loop implements:
+- Direct pathway (D1/Go) for action facilitation
+- Indirect pathway (D2/NoGo) for action inhibition
+- Dopamine-modulated learning through prediction errors
+- Action selection through disinhibition mechanism
+
+### Cerebellar Error Correction
+
+The cerebellar correction system implements:
+- Predictive error correction for motor commands
+- Massive granule cell expansion for pattern separation
+- Purkinje cell-based error learning
+- Context-based error memory system
+
+### Autonomic Regulation
+
+The autonomic regulation system implements:
+- Homeostatic drive regulation (energy, safety, curiosity, etc.)
+- Neuromodulator level coordination (dopamine, serotonin, etc.)
+- Drive-action mapping for intrinsic motivation
+- Adaptive urgency detection
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Project Structure
 
@@ -41,24 +143,6 @@ brAin/
 ├── results/                 # Training/testing results (generated)
 ├── main.py                  # Main script for training and testing
 └── README.md                # This file
-```
-
-## Installation
-
-1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/brAin.git
-cd brAin
-```
-
-2. Install dependencies:
-```bash
-pip install numpy matplotlib vizdoom scikit-image scipy pandas seaborn tqdm
-```
-
-3. For YOLO object detection support:
-```bash
-pip install torch torchvision ultralytics
 ```
 
 ## Usage
@@ -190,10 +274,6 @@ The agent's performance is evaluated using various metrics:
 - Implement attention mechanisms for more effective visual processing
 - Support for additional environments beyond VizDoom
 - Create a Doom-specific dataset for YOLO fine-tuning
-
-## License
-
-[MIT License](LICENSE)
 
 ## Acknowledgments
 
