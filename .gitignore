@@ -33,4 +33,6 @@ config/__pycache__/
 environment/__pycache__/
 evaluation/__pycache__/
 
+_vizdoom/
+_vizdoom.ini
 
