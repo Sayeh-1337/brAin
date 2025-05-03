@@ -1,2 +1,36 @@
+# Ignore all files in the Brain-Cog directory as it is another project and repository
+Brain-Cog/
+# Ignore all files in the experiments directory
 experiments/
+
+# Ignore all files in the brain_env directory
 brain_env/
+
+# Ignore all files in the results directory
+results/
+
+# Ignore all files in the reports directory
+reports/
+
+# Ignore all files in the recording directory
+recordings/
+
+#? ignore all pycache files
+__pycache__/
+
+#? ignore all .pyc files
+*.pyc
+
+brain/__pycache__/
+brain/agent/__pycache__/
+brain/encoders/__pycache__/
+brain/systems/__pycache__/
+brain/utils/__pycache__/
+brain/perception/__pycache__/
+brain/memory/__pycache__/
+brain/networks/__pycache__/
+config/__pycache__/
+environment/__pycache__/
+evaluation/__pycache__/
+
+

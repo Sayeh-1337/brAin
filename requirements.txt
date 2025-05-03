@@ -29,4 +29,11 @@ scikit-learn>=1.0.0  # For dimensionality reduction in visualizations
 # Optimization dependencies
 numba>=0.56.0  # For JIT compilation of Python code
 psutil>=5.9.0  # For system resource monitoring
-typing-extensions>=4.3.0  # For improved type annotations 
+typing-extensions>=4.3.0  # For improved type annotations
+
+# BrainCog dependencies
+einops>=0.6.0  # For tensor operations in BrainCog
+timm>=0.6.12  # For vision models
+lava-dl>=0.3.0  # For neuromorphic computing
+spikingjelly>=0.0.0.0.12  # For spiking neural networks
+torchmetrics>=0.11.0  # For model evaluation metrics 
