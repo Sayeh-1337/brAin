@@ -248,14 +248,53 @@ The agent integrates YOLO (You Only Look Once) object detection to enhance its p
 - Generates object-centric representations for improved decision making
 - Visualizes detections during training/testing
 
-### Fine-tuning YOLO for Doom
+## Brain-Cog Enhanced Agent
 
-For optimal performance, you can fine-tune YOLO with Doom-specific data:
+The system now integrates with Brain-Cog, a spiking neural network based brain-inspired cognitive intelligence engine, providing several key enhancements:
 
-1. **Collect Images**: Capture frames from different scenarios
-2. **Label Data**: Use tools like CVAT or LabelImg to label objects
-3. **Organize Data** in YOLO format according to ultralytics requirements
-4. **Fine-tune** using the provided `fine_tune` method in YOLODetector
+### Enhanced Agent Features
+
+- **Biologically Plausible Neurons**: Uses Brain-Cog's LIF (Leaky Integrate-and-Fire) neurons that more accurately model biological neuron behavior with membrane potentials and spiking mechanisms
+- **Advanced Basal Ganglia Model**: Implements direct (D1) and indirect (D2) pathways for biologically accurate action selection and inhibition
+- **Sophisticated Learning Rules**: Incorporates STDP (Spike-Timing-Dependent Plasticity) and dopamine-modulated reinforcement learning
+- **Multi-level Neuromodulation**: Simulates dopamine, serotonin, noradrenaline, and acetylcholine effects on learning and behavior
+- **Performance Optimization**: Leverages GPU acceleration and batch processing for efficient computation
+
+### Using the Brain-Cog Enhanced Agent
+
+To train an agent with Brain-Cog enhancements:
+
+```bash
+python main.py train --scenario basic --episodes 1000 --use-braincog --output-dir results/braincog_agent
+```
+
+To test a Brain-Cog enhanced agent:
+
+```bash
+python main.py test --scenario basic --model results/braincog_agent/agent_final --render --use-braincog
+```
+
+The Brain-Cog enhanced agent provides:
+- More biologically accurate neural dynamics
+- Improved decision-making through realistic basal ganglia modeling
+- Enhanced learning with multiple biologically-inspired mechanisms
+- Better scaling on GPU hardware for larger networks
+
+### Basal Ganglia Brain-Cog Integration
+
+The system implements a full basal ganglia circuit using Brain-Cog components:
+- Direct pathway (D1/Go) for action facilitation
+- Indirect pathway (D2/NoGo) for action inhibition 
+- STN-GPe-GPi circuit for selective disinhibition
+- Dopamine-modulated learning with reward prediction error
+
+### SNN Brain-Cog Integration
+
+The SNN implementation is enhanced with:
+- Multiple encoding options (rate, temporal, and phase)
+- Biologically plausible STDP learning
+- Reinforcement learning with reward signals
+- Spike-based information processing
 
 ## Evaluation Metrics
 

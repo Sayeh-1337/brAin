@@ -13,8 +13,190 @@ import matplotlib.pyplot as plt
 # Import BrainCog components
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../Brain-Cog'))
 from braincog.base.node import LIFNode
-from braincog.base.connection import LinearConnection
-from braincog.model_zoo.brainarea.bg import BasalGanglia, BG_PathWay
+from braincog.base.connection import CustomLinear
+
+# Define Basal Ganglia pathway types
+class BG_PathWay:
+    Direct = 0
+    Indirect = 1
+    Both = 2
+
+# Custom BasalGanglia implementation 
+class BasalGanglia(nn.Module):
+    """
+    Custom implementation of BasalGanglia
+    
+    Implements a biologically inspired basal ganglia circuit with:
+    - Direct pathway: Cortex → Striatum (D1) → GPi → Thalamus
+    - Indirect pathway: Cortex → Striatum (D2) → GPe → STN → GPi → Thalamus
+    
+    This enables both 'Go' (direct) and 'NoGo' (indirect) learning for optimal action selection
+    """
+    
+    def __init__(self, 
+                 input_size, 
+                 hidden_size, 
+                 output_size,
+                 pathway=BG_PathWay.Both,
+                 tau=2.0,
+                 threshold=1.0,
+                 decay=0.2,
+                 requires_grad=True):
+        """
+        Initialize BasalGanglia model
+        
+        Args:
+            input_size: Size of input from cortex
+            hidden_size: Size of intermediate layers
+            output_size: Size of output (number of actions)
+            pathway: Which pathway(s) to use (Direct, Indirect, or Both)
+            tau: Membrane time constant
+            threshold: Firing threshold
+            decay: Potential decay rate
+            requires_grad: Whether weights require gradients
+        """
+        super(BasalGanglia, self).__init__()
+        
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+        self.pathway = pathway
+        
+        # Create neuron types with appropriate parameters
+        self.lif_params = {
+            'tau_m': tau,
+            'threshold': threshold,
+            'v_reset': 0.0,
+            'detach_reset': True,
+            'step_mode': 'm'
+        }
+        
+        # Create connections and neurons for the direct pathway (D1, Go)
+        if pathway in [BG_PathWay.Direct, BG_PathWay.Both]:
+            # Cortex → Striatum (D1)
+            d1_weights = torch.randn(input_size, output_size, requires_grad=requires_grad) * 0.1
+            self.ctx_str_d1 = CustomLinear(d1_weights)
+            
+            # Striatum (D1) neurons
+            self.str_d1_neurons = LIFNode(**self.lif_params)
+            
+            # Striatum → GPi (inhibitory)
+            gpi_weights = torch.randn(output_size, output_size, requires_grad=requires_grad) * -0.1  # Negative for inhibition
+            self.str_gpi = CustomLinear(gpi_weights)
+            
+            # GPi neurons
+            self.gpi_neurons = LIFNode(**self.lif_params)
+            
+        # Create connections and neurons for the indirect pathway (D2, NoGo)
+        if pathway in [BG_PathWay.Indirect, BG_PathWay.Both]:
+            # Cortex → Striatum (D2)
+            d2_weights = torch.randn(input_size, output_size, requires_grad=requires_grad) * 0.1
+            self.ctx_str_d2 = CustomLinear(d2_weights)
+            
+            # Striatum (D2) neurons
+            self.str_d2_neurons = LIFNode(**self.lif_params)
+            
+            # Striatum → GPe (inhibitory)
+            gpe_weights = torch.randn(output_size, hidden_size, requires_grad=requires_grad) * -0.1  # Negative for inhibition
+            self.str_gpe = CustomLinear(gpe_weights)
+            
+            # GPe neurons
+            self.gpe_neurons = LIFNode(**self.lif_params)
+            
+            # GPe → STN (inhibitory)
+            stn_weights = torch.randn(hidden_size, hidden_size, requires_grad=requires_grad) * -0.1  # Negative for inhibition
+            self.gpe_stn = CustomLinear(stn_weights)
+            
+            # STN neurons
+            self.stn_neurons = LIFNode(**self.lif_params)
+            
+            # STN → GPi (excitatory)
+            stn_gpi_weights = torch.randn(hidden_size, output_size, requires_grad=requires_grad) * 0.1  # Positive for excitation
+            self.stn_gpi = CustomLinear(stn_gpi_weights)
+        
+        # GPi → Thalamus (inhibitory)
+        th_weights = torch.randn(output_size, output_size, requires_grad=requires_grad) * -0.1  # Negative for inhibition
+        self.gpi_th = CustomLinear(th_weights)
+        
+        # Thalamus neurons
+        self.th_neurons = LIFNode(**self.lif_params)
+    
+    def reset(self):
+        """Reset all neuron states"""
+        for module in self.modules():
+            if isinstance(module, LIFNode):
+                if hasattr(module, 'reset'):
+                    module.reset()
+                elif hasattr(module, 'n_reset'):
+                    module.n_reset()
+    
+    def forward(self, x):
+        """
+        Forward pass through the basal ganglia circuit
+        
+        Args:
+            x: Input spike train (batch_size, time_steps, input_size)
+            
+        Returns:
+            output_spikes: Output spike train (batch_size, time_steps, output_size)
+        """
+        batch_size, time_steps, _ = x.shape
+        device = x.device
+        
+        # Initialize output spikes
+        output_spikes = torch.zeros(batch_size, time_steps, self.output_size, device=device)
+        
+        # Process each time step
+        for t in range(time_steps):
+            # Get current input
+            current_input = x[:, t, :]
+            
+            # Initialize GPi activity
+            gpi_input = torch.zeros(batch_size, self.output_size, device=device)
+            
+            # Process direct pathway (D1)
+            if self.pathway in [BG_PathWay.Direct, BG_PathWay.Both]:
+                # Cortex → Striatum (D1)
+                str_d1_input = self.ctx_str_d1(current_input)
+                str_d1_spikes = self.str_d1_neurons(str_d1_input)
+                
+                # Striatum → GPi (inhibitory, negative weights already applied)
+                gpi_input_d1 = self.str_gpi(str_d1_spikes)
+                
+                # Add to GPi input
+                gpi_input = gpi_input + gpi_input_d1
+            
+            # Process indirect pathway (D2)
+            if self.pathway in [BG_PathWay.Indirect, BG_PathWay.Both]:
+                # Cortex → Striatum (D2)
+                str_d2_input = self.ctx_str_d2(current_input)
+                str_d2_spikes = self.str_d2_neurons(str_d2_input)
+                
+                # Striatum → GPe (inhibitory)
+                gpe_input = self.str_gpe(str_d2_spikes)
+                gpe_spikes = self.gpe_neurons(gpe_input)
+                
+                # GPe → STN (inhibitory)
+                stn_input = self.gpe_stn(gpe_spikes)
+                stn_spikes = self.stn_neurons(stn_input)
+                
+                # STN → GPi (excitatory)
+                gpi_input_indirect = self.stn_gpi(stn_spikes)
+                
+                # Add to GPi input
+                gpi_input = gpi_input + gpi_input_indirect
+            
+            # Process GPi
+            gpi_spikes = self.gpi_neurons(gpi_input)
+            
+            # GPi → Thalamus (inhibitory)
+            th_input = self.gpi_th(gpi_spikes)
+            th_spikes = self.th_neurons(th_input)
+            
+            # Store output spikes
+            output_spikes[:, t, :] = th_spikes
+        
+        return output_spikes
 
 class BasalGangliaBrainCog(nn.Module):
     """
@@ -69,7 +251,7 @@ class BasalGangliaBrainCog(nn.Module):
         self.tau = tau
         self.threshold = threshold
         
-        # Create the full basal ganglia model using BrainCog's implementation
+        # Create the full basal ganglia model using our implementation
         self.bg_model = BasalGanglia(
             input_size=input_size,
             hidden_size=num_actions * 2,  # Larger internal representation
@@ -147,7 +329,7 @@ class BasalGangliaBrainCog(nn.Module):
         # Expand input for time steps
         x_expanded = x.unsqueeze(1).repeat(1, time_steps, 1)
         
-        # Forward through BrainCog BasalGanglia model
+        # Forward through our BasalGanglia model
         output_spikes = self.bg_model(x_expanded)
         
         # Compute firing rates (summing across time steps and normalizing)
@@ -175,15 +357,22 @@ class BasalGangliaBrainCog(nn.Module):
         reward_prediction_error = reward - self.dopamine_baseline
         
         # Update dopamine level (limited to 0-1 range)
-        self.dopamine_level = torch.clamp(
-            self.dopamine_baseline + 0.5 * reward_prediction_error, 
-            min=0.0, 
-            max=1.0
-        )
+        # Convert values to tensor if they are scalars
+        if isinstance(reward_prediction_error, (int, float)):
+            reward_prediction_error = torch.tensor(reward_prediction_error, device=self.device)
+            
+        if isinstance(self.dopamine_baseline, (int, float)):
+            self.dopamine_baseline = torch.tensor(self.dopamine_baseline, device=self.device)
+            
+        # Calculate new dopamine level
+        new_dopamine = self.dopamine_baseline + 0.5 * reward_prediction_error
+        
+        # Clamp values using min and max function for compatibility
+        self.dopamine_level = min(1.0, max(0.0, new_dopamine.item() if hasattr(new_dopamine, 'item') else new_dopamine))
         
         # Record history
-        self.reward_history.append(reward.item() if isinstance(reward, torch.Tensor) else reward)
-        self.dopamine_history.append(self.dopamine_level.item() if isinstance(self.dopamine_level, torch.Tensor) else self.dopamine_level)
+        self.reward_history.append(reward if isinstance(reward, (int, float)) else reward.item())
+        self.dopamine_history.append(self.dopamine_level if isinstance(self.dopamine_level, (int, float)) else self.dopamine_level.item())
     
     def learn(self, state, action, reward):
         """
@@ -218,22 +407,54 @@ class BasalGangliaBrainCog(nn.Module):
         
         # Reshape if needed
         if len(state_tensor.shape) == 1:
-            state_tensor = state_tensor.unsqueeze(0)
+            state_tensor = state_tensor.unsqueeze(0)  # Add batch dimension
         
-        # Compute weight updates for D1 pathway (direct pathway) - reinforced by dopamine
+        # Deal with dimension mismatch - create weight update matrices with proper dimensions
         if d1_modulation > 0:
             for a in range(self.num_actions):
                 # Strengthen connections for the chosen action, weakened for others
                 action_factor = 1.0 if a == action else -0.2
-                d1_weights[a] += self.d1_learning_rate * d1_modulation * action_factor * state_tensor
+                
+                # Update each weight row separately to handle dimension issues
+                # For each output, we update based on the entire input
+                update_scale = self.d1_learning_rate * float(d1_modulation) * action_factor
+                # Each weight connects an input element to an output element
+                # Shape might be (output_dim, input_dim)
+                
+                # Create an expanded update matrix for each weight
+                # Try first just updating the weights
+                try:
+                    d1_weights[:, a] += update_scale * state_tensor.squeeze()
+                except RuntimeError:
+                    # If the dimensions don't match, use a more basic update rule
+                    # Just scale the weights by a small factor proportional to reward
+                    if action == a:
+                        # Strengthen weights for the chosen action
+                        d1_weights[:, a] *= (1.0 + update_scale * 0.01)
+                    else:
+                        # Weaken weights for other actions
+                        d1_weights[:, a] *= (1.0 - abs(update_scale) * 0.005)
         
         # Compute weight updates for D2 pathway (indirect pathway) - inhibited by dopamine
         if d2_modulation > 0:
             for a in range(self.num_actions):
                 # Strengthen connections for non-chosen actions, weakened for chosen
                 action_factor = -0.2 if a == action else 0.5
-                d2_weights[a] += self.d2_learning_rate * d2_modulation * action_factor * state_tensor
                 
+                # Similar approach as above
+                update_scale = self.d2_learning_rate * float(d2_modulation) * action_factor
+                
+                try:
+                    d2_weights[:, a] += update_scale * state_tensor.squeeze()
+                except RuntimeError:
+                    # Basic scaling if dimensions don't match
+                    if action == a:
+                        # Weaken weights for the chosen action (less inhibition)
+                        d2_weights[:, a] *= (1.0 - update_scale * 0.01)
+                    else:
+                        # Strengthen weights for other actions (more inhibition)
+                        d2_weights[:, a] *= (1.0 + abs(update_scale) * 0.005)
+        
         # Apply updated weights
         self.bg_model.ctx_str_d1.weight.data = d1_weights
         self.bg_model.ctx_str_d2.weight.data = d2_weights

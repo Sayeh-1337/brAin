@@ -36,3 +36,4 @@ evaluation/__pycache__/
 _vizdoom/
 _vizdoom.ini
 
+yolov8n.pt

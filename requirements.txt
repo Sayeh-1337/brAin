@@ -36,4 +36,5 @@ einops>=0.6.0  # For tensor operations in BrainCog
 timm>=0.6.12  # For vision models
 lava-dl>=0.3.0  # For neuromorphic computing
 spikingjelly>=0.0.0.0.12  # For spiking neural networks
-torchmetrics>=0.11.0  # For model evaluation metrics 
+torchmetrics>=0.11.0  # For model evaluation metrics
+braincog 

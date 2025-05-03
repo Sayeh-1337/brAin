@@ -17,9 +17,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../../Brain-Cog'))
 
 # Import from BrainCog
 from braincog.base.node import LIFNode
-from braincog.base.connection import LinearConnection
-from braincog.model_zoo.brainarea.bg import BasalGanglia
-from braincog.utils import plot_voltage_trace
+from braincog.base.connection import CustomLinear
 
 # Import our own components
 from brain.networks.snn_braincog import BrainCogSNN
@@ -308,12 +306,13 @@ class EnhancedAgent:
         
         return state_hypervector
     
-    def act(self, observation, deterministic=False):
+    def act(self, observation, motion=None, deterministic=False):
         """
         Select an action based on the current observation
         
         Args:
             observation: Environment observation
+            motion: Motion information (ignored in this agent)
             deterministic: Whether to act deterministically (no exploration)
             
         Returns:
@@ -350,12 +349,23 @@ class EnhancedAgent:
         q_probs = self._softmax(q_values)
         
         # Weight between Q-values and basal ganglia proportionally to dopamine (more dopamine = more Q-values)
-        dopamine = self.neuromodulators['dopamine']
+        dopamine = float(self.neuromodulators['dopamine'])
         combined_probs = dopamine * q_probs + (1 - dopamine) * action_probs
         
         # Select action (epsilon-greedy)
-        if not deterministic and np.random.rand() < self.epsilon:
-            action = np.random.randint(self.num_actions)
+        # Make sure epsilon is a scalar
+        try:
+            epsilon_value = float(self.epsilon)
+        except:
+            epsilon_value = 0.1  # Default if conversion fails
+            
+        # Exploration vs exploitation
+        if not deterministic:
+            random_choice = random.random() < epsilon_value
+            if random_choice:
+                action = random.randint(0, self.num_actions - 1)
+            else:
+                action = np.argmax(combined_probs)
         else:
             action = np.argmax(combined_probs)
         
@@ -413,8 +423,24 @@ class EnhancedAgent:
             self.memory_vectors.pop(0)
         self.memory_vectors.append(memory_hv.cpu().numpy())
     
-    def learn(self):
-        """Update the agent's knowledge from experiences"""
+    def learn(self, state=None, action=None, reward=None, next_state=None, done=None):
+        """
+        Update the agent's knowledge from experiences
+        
+        If parameters are provided, store the experience first.
+        Then learn from replay buffer.
+        
+        Args:
+            state: Current state (optional)
+            action: Action taken (optional)
+            reward: Reward received (optional)
+            next_state: Next state (optional)
+            done: Whether episode is done (optional)
+        """
+        # Store experience if provided
+        if state is not None and action is not None and reward is not None and next_state is not None and done is not None:
+            self.store(state, action, reward, next_state, done)
+            
         # Start timing
         start_time = time.time()
         
@@ -597,4 +623,16 @@ class EnhancedAgent:
         # Load agent state
         self.epsilon = save_dict['epsilon']
         self.steps = save_dict['steps']
-        self.neuromodulators = save_dict['neuromodulators'] 
+        self.neuromodulators = save_dict['neuromodulators']
+    
+    def replay_experience(self, batch_size=32):
+        """
+        Replay experiences from memory buffer
+        
+        This is an alias for the learn method without parameters
+        to maintain compatibility with the trainer interface.
+        
+        Args:
+            batch_size: Size of the batch to sample (ignored, using internal batch size)
+        """
+        self.learn() 
