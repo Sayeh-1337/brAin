@@ -165,6 +165,12 @@ def parse_args():
         help="Random seed for reproducibility"
     )
     
+    parser.add_argument(
+        "--use-braincog",
+        action="store_true",
+        help="Use BrainCog components for enhanced biological plausibility"
+    )
+    
     return parser.parse_args()
 
 
@@ -212,7 +218,23 @@ def create_agent(args, scenario_config):
     # Update config
     set_config(hd_dimension=hd_dim, device=device)
     
-    if args.use_optimized:
+    if args.use_braincog:
+        # Import the enhanced agent using BrainCog
+        from brain.agent.enhanced_agent import EnhancedAgent
+        
+        # Create enhanced agent with BrainCog components
+        print(f"Creating BrainCog-enhanced agent on device: {device}")
+        agent = EnhancedAgent(
+            input_shape=(120, 160, 3),
+            hd_dim=hd_dim,
+            snn_hidden=args.snn_neurons,
+            num_actions=5,  # Fixed for VizDoom
+            memory_capacity=10000,
+            learning_rate=learning_rate,
+            use_yolo=args.use_yolo,
+            device=device
+        )
+    elif args.use_optimized:
         # Create optimized agent
         print(f"Creating optimized agent on device: {device}")
         agent = OptimizedAgent(
